@@ -1,0 +1,284 @@
+---
+title: "National Trial Environmental Analysis"
+author: "Husain Agha"
+date: "10/25/2021"
+output: html_document
+---
+
+```{r setup} 
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(root.dir="/Users/husainagha/Documents/GitHub.nosync/NationalTrialEnv/")
+library(tidyverse); library(GWASpoly); library(StageWise)
+```
+
+```{r read in data, echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+files <- list.files("./ncpt_field/", full.names = TRUE)
+ncptList <- lapply(files, function(i){read_csv(i)})
+rm(files)
+ncptgeno1 <- read.csv("NCPTgeno1.csv")
+ncptgeno2 <- read.csv("NCPTgeno2.csv")
+fryFieldData <- read_csv("nfpt_field_data.csv")
+fryGeno <- read.csv("NFPT15-20_geno.csv")
+names(fryGeno)[1] <- "marker"
+
+chipGeno <- right_join(ncptgeno1, ncptgeno2, by = "marker")
+chipGeno <- chipGeno %>% 
+  rename_at(
+    vars(ends_with(".x")),
+    ~str_replace(., "\\..$","")
+  ) %>% 
+  select_at(
+    vars(-ends_with(".y"))
+  )
+```
+
+```{r clean data}
+chipFieldData <- bind_rows(ncptList)
+rm(ncptList)
+#remove duplicated rows and redundant headers from the NCPT data
+chipFieldData <- chipFieldData[!duplicated(chipFieldData),]
+chipFieldData <- chipFieldData[5:nrow(chipFieldData),]
+#remove duplicated rows and redundant headers from the NFPT data
+fryFieldData <- fryFieldData[!duplicated(fryFieldData),]
+fryFieldData <- fryFieldData[5:nrow(fryFieldData),]
+#combine the two genotype datasets for the NCPT
+chipGeno <- bind_rows(ncptgeno1, ncptgeno2)
+rm(ncptgeno1); rm(ncptgeno2)
+
+# Match the variety name format between the genotype data and the phenotypes for both datasets.
+# Filter out any phenotypes that don't have a genotype associated with them for both datasets.
+chipVarieties <- names(chipGeno)[-c(1, 2, 3)]
+chipFieldData <- chipFieldData %>% 
+  mutate(variety = str_replace_all(variety, " ", "")) %>% 
+  mutate(variety = str_replace_all(variety, "-", ".")) %>% 
+  filter(variety %in% chipVarieties)
+
+fryVarieties <- names(fryGeno)[-1]
+fryFieldData <- fryFieldData %>% 
+  mutate(variety = str_replace_all(variety, " ", "")) %>% 
+  mutate(variety = str_replace_all(variety, "-", ".")) %>% 
+  filter(variety %in% fryVarieties)
+
+rm(chipVarieties); rm(fryVarieties)
+# Round all genotypes to closest imputed dosage
+chipGeno <- chipGeno %>% mutate_if(is.numeric, round)
+fryGeno <- fryGeno %>% mutate_if(is.numeric, round)
+```
+
+```{r rho calculations}
+# Expected (gametic) Heterozygosity (H0 from Meirmans)
+
+chipGeno1 <- chipGeno[-which(duplicated(chipGeno$marker)),]
+chipGamHet <- t(chipGeno1[,-c(1:3)])
+chipGamHet[chipGamHet == 4] <- 0
+chipGamHet[chipGamHet == 1 | chipGamHet == 3] <- 0.5
+chipGamHet[chipGamHet == 2] <- (2/3)
+chipGamHet <- data.frame(chipGamHet)
+names(chipGamHet) <- chipGeno1$marker
+chipGamHet <- chipGamHet %>% summarise(across(everything(), .f = list(mean = mean), na.rm = TRUE))
+
+chipHet <- data.frame(t(chipGeno[,-c(1:3)]))
+
+chipTotalHet <- chipHet %>% summarise_all(sum, na.rm = T) %>% mutate_all(function(x = .) {x/(4*nrow(chipHet))})
+
+
+programCodes <- data.frame(code = c("A", "AA", "AW", "AC", "AO", "AOA", "ATX", "AF", "BTX", "CO", "COA",
+                                    "NDA", "NDTX", "NY", "PA", "TC", "VC", "MS", "W", "ND", "MN"),
+                           program = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho",
+                                       "Maryland", "Colorado", "Colorado", "NorthDakota",
+                                       "NorthDakota", "NewYork", "Washington", "Texas",
+                                       "Alberta", "Michigan", "Wisconsin", "NorthDakota", "Minnesota"),
+                           sel.site = c("Idaho", "Idaho", "Washington", "Colorado", "Oregon", "Oregon", "Texas", NA,
+                                        "Texas", "Colorado", "Idaho", "Idaho", "Texas",
+                                        "NewYork", "Idaho", "Colorado", "Alberta", "Michigan", 
+                                        "Wisconsin", "NorthDakota", "Minnesota"))
+
+chipFieldData <- chipFieldData %>% 
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, str_sub(variety, 1L, 1L), str_sub(variety, 1L, 2L))) %>% ## This bit standardizes the program codes in case they are only 1 letter
+  left_join(programCodes, ., by = "code") %>%
+  select(-sel.site)
+
+chipGenoVarieties <- names(chipGeno)[-c(1:3)]
+chipGenoVarieties <- data.frame(variety = chipGenoVarieties, index = 1:length(chipGenoVarieties))
+chipGenoVarieties <- chipFieldData %>% 
+  select(variety, program) %>% 
+  left_join(chipGenoVarieties, by = "variety") %>% 
+  filter(!duplicated(variety)) %>% 
+  group_by(program) %>% 
+  group_split
+
+chipPopHet <- list_along(1:6)
+for(i in 1:6){
+  indices <- chipGenoVarieties[[i]]$index
+  popGeno <- chipHet[indices,]
+  popHet <- popGeno %>% summarise_all(sum, na.rm = T) %>% mutate_all(function(x = .) {x/(4*nrow(popGeno))})
+  print(i)
+  chipPopHet[[i]] <- popHet
+}
+
+##  rho =  (Ht-Hs) / (Ht-((x-1)/x)*Ho)
+
+chipRho <- (chipTotalHet - chipPopHet[[1]]) / (chipTotalHet - ((4 - 1)/4)*chipGamHet)
+
+```
+
+```{r fry rho}
+fryGamHet <- fryGeno
+fryGamHet[fryGamHet == 4] <- 0
+fryGamHet[fryGamHet == 1 | fryGamHet == 3] <- 0.5
+fryGamHet[fryGamHet == 2] <- (2/3)
+fryGamHet <- data.frame(t(fryGamHet[,-1]))
+names(fryGamHet) <- fryGeno$marker
+fryGamHetFull <- fryGamHet %>% summarise(across(everything(), .f = list(mean = mean), na.rm = TRUE))
+
+fryHet <- data.frame(t(fryGeno[,-c(1)]))
+fryTotalHet <- fryHet %>% summarise_all(sum, na.rm = T) %>% mutate_all(function(x = .) {x/(4*nrow(fryHet))})
+
+fryFieldData1 <- fryFieldData %>% 
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, str_sub(variety, 1L, 1L), str_sub(variety, 1L, 2L))) %>% ## This bit standardizes the program codes in case they are only 1 letter
+  right_join(programCodes, ., by = "code") %>%
+  select(-sel.site)
+
+fryGenoVarieties <- rownames(fryGeno)
+fryGenoVarieties <- data.frame(variety = fryGenoVarieties, index = 1:length(fryGenoVarieties))
+fryGenoVarieties <- fryFieldData1 %>% 
+  select(variety, program) %>% 
+  left_join(fryGenoVarieties, by = "variety") %>% 
+  filter(!duplicated(variety)) %>% 
+  group_by(program) %>% 
+  group_split 
+
+pop <- list(fryGenoVarieties[[1]]$variety, 
+            fryGenoVarieties[[2]]$variety, 
+            fryGenoVarieties[[3]]$variety, 
+            fryGenoVarieties[[4]]$variety,
+            fryGenoVarieties[[5]]$variety)
+
+fryPopHet <- list_along(1:4)
+for(i in 1:4){
+  indices <- fryGenoVarieties[[i]]$index
+  popGeno <- fryHet[indices,]
+  popHet <- popGeno %>% summarise_all(sum, na.rm = T) %>% mutate_all(function(x = .) {x/(4*nrow(popGeno))})
+  print(i)
+  fryPopHet[[i]] <- popHet
+}
+
+##  rho =  (Ht-Hs) / (Ht-((x-1)/x)*Ho)
+
+```
+
+```{r}
+
+## Okay let's just try Cari's code then!
+
+## First we need an N X M matrix of the genotypes (coded as dosages)
+## Our data is in M x N so we need to transpose it, and move the "marker" from a column into the rownames
+rownames(fryGeno) <- fryGeno$marker
+fryGeno <- t(fryGeno[,-1])
+
+## Next we need to make an index of the different populations
+fryGenoVarieties <- rownames(fryGeno)
+fryGenoVarieties <- data.frame(variety = fryGenoVarieties, index = 1:length(fryGenoVarieties))
+fryGenoVarieties <- fryFieldData1 %>% 
+  select(variety, program) %>% 
+  left_join(fryGenoVarieties, by = "variety") %>% 
+  filter(!duplicated(variety)) %>% 
+  group_by(program) %>% 
+  group_split 
+
+popFry <- list(fryGenoVarieties[[1]]$variety,
+               fryGenoVarieties[[2]]$variety,
+               fryGenoVarieties[[3]]$variety,
+               fryGenoVarieties[[4]]$variety)
+
+rho.total <- get.rho(X = fryGeno, pop = pop, x = 4)
+
+rho1 <- get.rho(X = fryGeno, pop = list(popFry[[3]], popFry[[2]]), x = 4)
+pairwise.rho <- list_along(1:6)
+g <- 1
+for(i in 1:3){
+  for(j in (i+1):4){
+    pair <- get.rho(X = fryGeno, pop = list(popFry[[i]], popFry[[j]]), x = 4)
+    pairwise.rho[[g]] <- pair
+    g <- g + 1
+  }
+}
+
+subpopsFry <- list_along(1:4)
+for(i in 1:4){
+  fryPopLOO <- unlist(popFry)
+  fryPopLOO <- fryPopLOO[which(!fryPopLOO %in% popFry[[i]])]
+  subpopsFry[[i]] <- get.rho(X = fryGeno, pop = list(popFry[[i]], fryPopLOO), x = 4)
+}
+
+popRho <- data.frame(colorado = subpopsFry[[1]]$rho,
+                     idaho = subpopsFry[[2]]$rho,
+                     northDakota = subpopsFry[[3]]$rho,
+                     wisconsin = subpopsFry[[4]]$rho,
+                     marker = names(subpopsFry[[1]]$rho))
+
+popRho$position <- chipGeno$position[(match(popRho$marker, chipGeno$marker))]
+popRho$chrom <- chipGeno$chrom[(match(popRho$marker, chipGeno$marker))]
+
+popRho <- popRho %>% remove_missing(na.rm = T)
+
+popRho %>% pivot_longer(cols = colorado:wisconsin, names_to = "program", values_to = "rho") %>% ggplot(aes(x = position, y = rho, color = program)) + geom_point() + facet_wrap(~chrom, nrow = 6)
+```
+
+```{r}
+
+chipGeno1 <- t(chipGeno[,-c(1,2,3)])
+
+chipFieldData1 <- chipFieldData %>% 
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, str_sub(variety, 1L, 1L), str_sub(variety, 1L, 2L))) %>% ## This bit standardizes the program codes in case they are only 1 letter
+  right_join(programCodes, ., by = "code") %>%
+  select(-sel.site)
+
+## Next we need to make an index of the different populations
+chipGenoVarieties <- rownames(chipGeno1)
+chipGenoVarieties <- data.frame(variety = chipGenoVarieties, index = 1:length(chipGenoVarieties))
+chipGenoVarieties <- chipFieldData1 %>% 
+  select(variety, program) %>% 
+  left_join(chipGenoVarieties, by = "variety") %>% 
+  filter(!duplicated(variety)) %>% 
+  group_by(program) %>% 
+  group_split 
+
+popchip <- list(chipGenoVarieties[[1]]$variety,
+               chipGenoVarieties[[2]]$variety,
+               chipGenoVarieties[[3]]$variety,
+               chipGenoVarieties[[4]]$variety,
+               chipGenoVarieties[[5]]$variety,
+               chipGenoVarieties[[6]]$variety)
+
+rho.total2 <- get.rho(X = chipGeno1, pop = popchip, x = 4)
+rhoTwoPops1 <- get.rho(X = chipGeno1, pop = list(popchip[[2]], popchip[[3]]), x = 4)
+
+chipPheno <- chipFieldData1 %>% 
+              select(variety, program, trial, yield_total) %>%
+              mutate(trial = gsub(" ", "_", trial))
+
+
+
+data <- read.GWASpoly(ploidy = 4, pheno.file = "../../Experimental/chipPheno.csv", geno.file = "../../Experimental/chipgeno.csv", format = "numeric", n.traits = 1)
+
+data.original <- set.K(data,LOCO=FALSE)
+data.loco <- set.K(data,LOCO=TRUE)
+
+params <- set.params(geno.freq = 1 - 10/619,fixed=c("trial", "program"),fixed.type=c("factor", "factor"))
+
+data.loco.scan <- GWASpoly(data=data.loco,models=c("additive","1-dom"),
+                           traits=c("yield_total"),params=params)
+
+data.original.scan <- GWASpoly(data.original,models=c("additive","1-dom"),
+                               traits=c("yield_total"),params=params)
+
+
+genofile <- system.file("extdata", "new_potato_geno.csv", package = "GWASpoly")
+phenofile <- system.file("extdata", "new_potato_pheno.csv", package = "GWASpoly")
+
+library(GWASpoly)
+data1 <- read.GWASpoly(ploidy=4,pheno.file=phenofile,geno.file=genofile,
+                      format="numeric",n.traits=1,delim=",")
+
+```
