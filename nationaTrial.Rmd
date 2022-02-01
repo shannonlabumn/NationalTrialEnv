@@ -225,6 +225,7 @@ popRho <- popRho %>% remove_missing(na.rm = T)
 popRho %>% pivot_longer(cols = colorado:wisconsin, names_to = "program", values_to = "rho") %>% ggplot(aes(x = position, y = rho, color = program)) + geom_point() + facet_wrap(~chrom, nrow = 6)
 ```
 
+
 ```{r}
 
 chipGeno1 <- t(chipGeno[,-c(1,2,3)])
@@ -255,9 +256,10 @@ rho.total2 <- get.rho(X = chipGeno1, pop = popchip, x = 4)
 rhoTwoPops1 <- get.rho(X = chipGeno1, pop = list(popchip[[2]], popchip[[3]]), x = 4)
 
 chipPheno <- chipFieldData1 %>% 
-              select(variety, program, trial, yield_total) %>%
-              mutate(trial = gsub(" ", "_", trial))
+              select(variety, yield_total, program, trial) %>%
+              filter(!is.na(program), !is.na(yield_total))
 
+write.csv(chipPheno, file = "../../Experimental/chipPheno.csv", row.names = F)
 
 
 data <- read.GWASpoly(ploidy = 4, pheno.file = "../../Experimental/chipPheno.csv", geno.file = "../../Experimental/chipgeno.csv", format = "numeric", n.traits = 1)
@@ -265,12 +267,13 @@ data <- read.GWASpoly(ploidy = 4, pheno.file = "../../Experimental/chipPheno.csv
 data.original <- set.K(data,LOCO=FALSE)
 data.loco <- set.K(data,LOCO=TRUE)
 
-params <- set.params(geno.freq = 1 - 10/619,fixed=c("trial", "program"),fixed.type=c("factor", "factor"))
 
-data.loco.scan <- GWASpoly(data=data.loco,models=c("additive","1-dom"),
-                           traits=c("yield_total"),params=params)
+params <- set.params(geno.freq = 1 - 10/619)
 
-data.original.scan <- GWASpoly(data.original,models=c("additive","1-dom"),
+data.loco.scan <- GWASpoly(data=data.loco,models=c("additive"),
+                           traits=c("program"),params=params)
+
+data.original.scan <- GWASpoly(data.original,models=c("additive"),
                                traits=c("yield_total"),params=params)
 
 
@@ -282,3 +285,32 @@ data1 <- read.GWASpoly(ploidy=4,pheno.file=phenofile,geno.file=genofile,
                       format="numeric",n.traits=1,delim=",")
 
 ```
+
+```{r}
+genofile <- system.file("extdata", "new_potato_geno.csv", package = "GWASpoly")
+phenofile <- system.file("extdata", "new_potato_pheno.csv", package = "GWASpoly")
+
+library(GWASpoly)
+data1<- read.GWASpoly(ploidy=4, pheno.file=phenofile, geno.file=genofile,
+                      format="numeric", n.traits=1, delim=",")
+
+```
+
+
+File Edit Options Buffers Tools Sh-Script Help                                 
+#!/bin/bash -l                                                                 
+#SBATCH --time=8:00:00                                                         
+#SBATCH --ntasks=16                                                            
+#SBATCH --mem=20g                                                              
+#SBATCH --tmp=20g                                                              
+#SBATCH --mail-type=ALL                                                        
+#SBATCH --error=gwaspoly.%J.stderr                                             
+#SBATCH --output=gwaspoly.%J.stdout                                            
+#SBATCH --mail-user=agha0012@umn.edu                                           
+
+cd ~/gwaspoly
+Rscript	gwaspoly.R
+
+
+
+

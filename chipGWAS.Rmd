@@ -1,0 +1,114 @@
+---
+title: "chipGWAS"
+author: "Husain Agha"
+date: "1/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+knitr::opts_chunk$set(root.dir="/Users/husainagha/Documents/GitHub.nosync/NationalTrialEnv/")
+library(tidyverse); library(GWASpoly)
+```
+
+```{r data import}
+files <- list.files("./ncpt_field/", full.names = TRUE)
+ncptList <- lapply(files, function(i){read_csv(i)})
+chipFieldData <- bind_rows(ncptList)
+      
+ncptgeno1 <- read_csv("NCPTgeno1.csv")
+ncptgeno2 <- read_csv("NCPTgeno2.csv")
+
+chipGeno <- right_join(ncptgeno1, ncptgeno2, by = "marker")
+## This bit just takes out varieties that were genotyped on both the 12k and 8k arrays to avoid duplicated entries
+chipGeno <- chipGeno                %>% 
+  rename_at(vars(ends_with(".x")),
+    ~str_replace(., "\\..$",""))    %>% 
+  select_at(vars(-ends_with(".y")))
+
+```
+
+```{r clean data}
+chipFieldData <- chipFieldData %>% 
+  filter(!is.na(year), !is.na(yield_total), year %in% as.character(2010:2021)) %>% # filters empty rows, missing yield, headers
+  mutate(variety = str_replace_all(variety, " ", ""))                          %>% # Removes spaces
+  mutate(variety = str_replace_all(variety, "-", "."))                         %>% # Replaces hyphens with periods
+  select(trial, variety, yield_total)                                          %>% # keep only relevant columns
+  mutate(trial = str_replace(trial, " NCPT ", "_"))
+
+chipGeno <- ncptgeno1 %>% mutate_if(is.numeric, round)
+
+# check if there are different named clones in the data set
+# Try to run a single trial to see if too many observations is the problem
+```
+
+```{r program codes}
+programCodes <- tibble(code = c("A", "AA", "AW", "AC", "AO", "AOA", "ATX", "AF", "BTX", "CO", "COA",
+                                    "NDA", "NDTX", "NY", "PA", "TC", "VC", "MS", "W", "ND", "MN"),
+                           program = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho",
+                                       "Maryland", "Colorado", "Colorado", "NorthDakota",
+                                       "NorthDakota", "NewYork", "Washington", "Texas",
+                                       "Alberta", "Michigan", "Wisconsin", "NorthDakota", "Minnesota"),
+                           sel.site = c("Idaho", "Idaho", "Washington", "Colorado", "Oregon", "Oregon", "Texas", NA,
+                                        "Texas", "Colorado", "Idaho", "Idaho", "Texas",
+                                        "NewYork", "Idaho", "Colorado", "Alberta", "Michigan", 
+                                        "Wisconsin", "NorthDakota", "Minnesota"))
+
+chipFieldDataProgram <- chipFieldData                     %>% 
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, 
+                       str_sub(variety, 1L, 1L), 
+                       str_sub(variety, 1L, 2L)))         %>% ## standardizes  program codes
+  left_join(programCodes, by = "code")                    %>%
+  select(-sel.site, -code)                                 %>%
+  filter(!is.na(program))                                 %>% ## removes varieties without programs specified
+  relocate(variety, yield_total, program, trial)
+
+chipGenoVarieties <- chipGeno        %>% ## Get names of the varieties from genotype data
+  select(-marker, -chrom, -position) %>%
+  names()                            %>%
+  tibble(variety = .)
+
+chipFieldVarieties <- chipFieldDataProgram %>% ## Get names of the varieties from field
+  distinct(variety)
+
+varieties <- inner_join(chipFieldVarieties, ## Keep only variety names in both the field and geno data 
+                        chipGenoVarieties) 
+
+chipGenoSelected <- chipGeno %>% ## filter out unnecessary varieties
+  select(marker, chrom, position, pull(varieties))
+
+chipFieldSelected <- chipFieldDataProgram %>% ## filter out unnecessary varieties
+  filter(variety %in% pull(varieties))
+
+write_csv(chipFieldSelected, "chipPheno12k.csv")
+write_csv(chipGenoSelected, "chipGeno12k.csv")
+
+data <- read.GWASpoly(ploidy = 4, 
+                      pheno.file = "chipPheno12k.csv", 
+                      geno.file = "chipGeno12k.csv", 
+                      format = "numeric", 
+                      n.traits = 1)
+
+data.original <- set.K(data, LOCO=FALSE)
+
+params <- set.params(geno.freq  = 1 - 10/334,
+                     fixed      = c("program", "trial"),
+                     fixed.type = c("factor", "factor"))
+Sys.time()
+
+data.original.scan <- GWASpoly(data.original,
+                               models=c("additive"),
+                               traits=c("yield_total"),
+                               params=params)
+
+Sys.time()
+
+qq.plot(data.original.scan,trait="yield_total") + ggtitle(label="Original")
+data2 <- set.threshold(data.original.scan,method="Bonferroni",level=0.05)
+
+p <- manhattan.plot(data2,traits="yield_total")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+```
+
+
