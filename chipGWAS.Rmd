@@ -19,7 +19,7 @@ chipFieldData <- bind_rows(ncptList)
 ncptgeno1 <- read_csv("NCPTgeno1.csv")
 ncptgeno2 <- read_csv("NCPTgeno2.csv")
 
-chipGeno <- right_join(ncptgeno1, ncptgeno2, by = "marker")
+chipGeno <- left_join(ncptgeno1, ncptgeno2, by = "marker")
 ## This bit just takes out varieties that were genotyped on both the 12k and 8k arrays to avoid duplicated entries
 chipGeno <- chipGeno                %>% 
   rename_at(vars(ends_with(".x")),
@@ -27,6 +27,8 @@ chipGeno <- chipGeno                %>%
   select_at(vars(-ends_with(".y")))
 
 ```
+
+## Chip 12k array only data.
 
 ```{r clean data}
 chipFieldData <- chipFieldData %>% 
@@ -59,7 +61,7 @@ chipFieldDataProgram <- chipFieldData                     %>%
                        str_sub(variety, 1L, 1L), 
                        str_sub(variety, 1L, 2L)))         %>% ## standardizes  program codes
   left_join(programCodes, by = "code")                    %>%
-  select(-sel.site, -code)                                 %>%
+  select(-sel.site, -code)                                %>%
   filter(!is.na(program))                                 %>% ## removes varieties without programs specified
   relocate(variety, yield_total, program, trial)
 
@@ -83,13 +85,17 @@ chipFieldSelected <- chipFieldDataProgram %>% ## filter out unnecessary varietie
 write_csv(chipFieldSelected, "chipPheno12k.csv")
 write_csv(chipGenoSelected, "chipGeno12k.csv")
 
+```
+
+```{r actual GWAS}
 data <- read.GWASpoly(ploidy = 4, 
                       pheno.file = "chipPheno12k.csv", 
                       geno.file = "chipGeno12k.csv", 
                       format = "numeric", 
                       n.traits = 1)
 
-data.original <- set.K(data, LOCO=FALSE)
+data.original <- set.K(data, 
+                       LOCO=FALSE)
 
 params <- set.params(geno.freq  = 1 - 10/334,
                      fixed      = c("program", "trial"),
@@ -99,7 +105,8 @@ Sys.time()
 data.original.scan <- GWASpoly(data.original,
                                models=c("additive"),
                                traits=c("yield_total"),
-                               params=params)
+                               params=params,
+                               n.core = 4)
 
 Sys.time()
 
@@ -111,4 +118,99 @@ p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
 
 ```
 
+```{r fry data processing}
 
+genoMap <- chipGeno               %>% 
+  select(marker, position, chrom) %>% 
+  arrange(chrom, position)
+
+fryGeno <- read_csv("NFPT15-20_geno.csv")
+fryPheno <- read_csv("nfpt_field_data.csv")
+
+fryGeno <- fryGeno                                            %>%
+  mutate(across(is_numeric, round))                           %>%
+  rename_with(~gsub("-", ".", .x, fixed = TRUE))              %>%
+  inner_join(genoMap)                                         %>%
+  relocate(chrom, position, .after = marker)                  %>%
+  arrange(chrom, position)
+
+fryPheno <- fryPheno %>%
+  filter(year %in% as.character(2011:2021))                                    %>%
+  mutate(variety = str_replace_all(variety, " ", ""))                          %>% # Removes spaces
+  mutate(variety = str_replace_all(variety, "-", "."))                         %>% # Replaces hyphens with periods
+  select(variety, total_weight, trial)                                         %>% # keep only relevant columns
+  mutate(trial = str_replace(trial, " NFPT ", "_"))                            
+
+programCodes <- data.frame(code = c("A", "AA", "AW", "AC", "AO", "AOA", "ATX", "AF", "BTX", "CO", "COA",
+                                    "NDA", "NDTX", "NY", "PA", "TC", "VC", "MS", "W", "ND", "MN"),
+                           program = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho",
+                                       "Maryland", "Colorado", "Colorado", "NorthDakota",
+                                       "NorthDakota", "NewYork", "Washington", "Texas",
+                                       "Alberta", "Michigan", "Wisconsin", "NorthDakota", "Minnesota"),
+                           sel.site = c("Idaho", "Idaho", "Washington", "Colorado", "Oregon", "Oregon", "Texas", NA,
+                                        "Texas", "Colorado", "Idaho", "Idaho", "Texas",
+                                        "NewYork", "Idaho", "Colorado", "Alberta", "Michigan", 
+                                        "Wisconsin", "NorthDakota", "Minnesota"))
+
+fryPheno <- fryPheno %>% 
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, 
+                       str_sub(variety, 1L, 1L), 
+                       str_sub(variety, 1L, 2L)))          %>% ## standardizes the program codes in case they are only 1 letter
+  left_join(., programCodes, by = "code")                  %>% 
+  select(-code, -sel.site)                                 %>%
+  filter(!is.na(program))
+
+fryPhenoVar <- fryPheno %>% ## Get names of the varieties from field
+  distinct(variety)
+
+fryGenoVar <- fryGeno                %>% ## Get names of the varieties from genotype data
+  select(-marker, -chrom, -position) %>%
+  names()                            %>%
+  tibble(variety = .)
+
+fryVarieties <- inner_join(fryGenoVar,
+                           fryPhenoVar)
+
+fryPheno <- fryPheno %>%
+  filter(variety %in% fryVarieties$variety)
+
+fryGeno <- fryGeno %>%
+  select(marker, chrom, position, fryVarieties$variety)
+
+write_csv(fryPheno, "fryGWASpheno.csv")
+write_csv(fryGeno, "fryGWASgeno.csv")
+
+```
+
+```{r fry GWAS}
+
+data <- read.GWASpoly(ploidy = 4, 
+                      pheno.file = "fryGWASpheno.csv", 
+                      geno.file = "fryGWASgeno.csv", 
+                      format = "numeric", 
+                      n.traits = 1)
+
+data.original <- set.K(data, 
+                       LOCO=FALSE)
+
+params <- set.params(geno.freq  = 1 - 10/135,
+                     fixed      = c("program", "trial"),
+                     fixed.type = c("factor", "factor"))
+Sys.time()
+
+data.original.scan <- GWASpoly(data = data.original,
+                               models = c("additive", "1-dom"),
+                               traits=c("total_weight"),
+                               params=params,
+                               n.core = 4)
+
+Sys.time()
+
+qq.plot(data.original.scan,trait="total_weight") + ggtitle(label="Original")
+data2 <- set.threshold(data.original.scan,method="Bonferroni",level=0.05)
+
+p <- manhattan.plot(data2,traits="total_weight")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+
+```
