@@ -8,10 +8,10 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T)
 knitr::opts_chunk$set(root.dir="/Users/husainagha/Documents/GitHub.nosync/NationalTrialEnv/")
-library(tidyverse); library(GWASpoly)
+library(tidyverse); library(GWASpoly); library(fuzzyjoin); library(readxl)
 ```
 
-```{r data import}
+```{r data import, echo=FALSE}
 files <- list.files("./ncpt_field/", full.names = TRUE)
 ncptList <- lapply(files, function(i){read_csv(i)})
 chipFieldData <- bind_rows(ncptList)
@@ -38,51 +38,74 @@ chipFieldData <- chipFieldData %>%
   select(trial, variety, yield_total)                                          %>% # keep only relevant columns
   mutate(trial = str_replace(trial, " NCPT ", "_"))
 
-chipGeno <- ncptgeno1 %>% mutate_if(is.numeric, round)
+chipGeno <- chipGeno %>% mutate_if(is.numeric, round)
 
 # check if there are different named clones in the data set
 # Try to run a single trial to see if too many observations is the problem
 ```
 
 ```{r program codes}
-programCodes <- tibble(code = c("A", "AA", "AW", "AC", "AO", "AOA", "ATX", "AF", "BTX", "CO", "COA",
-                                    "NDA", "NDTX", "NY", "PA", "TC", "VC", "MS", "W", "ND", "MN"),
-                           program = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho",
-                                       "Maryland", "Colorado", "Colorado", "NorthDakota",
-                                       "NorthDakota", "NewYork", "Washington", "Texas",
-                                       "Alberta", "Michigan", "Wisconsin", "NorthDakota", "Minnesota"),
-                           sel.site = c("Idaho", "Idaho", "Washington", "Colorado", "Oregon", "Oregon", "Texas", NA,
-                                        "Texas", "Colorado", "Idaho", "Idaho", "Texas",
-                                        "NewYork", "Idaho", "Colorado", "Alberta", "Michigan", 
-                                        "Wisconsin", "NorthDakota", "Minnesota"))
+only_letters <- function(x) { gsub("^([[:alpha:]]*).*$","\\1",x) }
 
-chipFieldDataProgram <- chipFieldData                     %>% 
-  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, 
-                       str_sub(variety, 1L, 1L), 
-                       str_sub(variety, 1L, 2L)))         %>% ## standardizes  program codes
-  left_join(programCodes, by = "code")                    %>%
-  select(-sel.site, -code)                                %>%
-  filter(!is.na(program))                                 %>% ## removes varieties without programs specified
-  relocate(variety, yield_total, program, trial)
+chipPheno <- chipFieldData %>%
+                mutate(code = ifelse(str_sub(variety, 2L, 2L) == ".",
+                                     "W",
+                                     only_letters(variety)))
+
+programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
+                                    "^AOA$", "^ATX$", "^AF$", "^BTX$", "^CO$",
+                                    "^COA$", "^NDA$", "^NDTX$", "NY[A-Z]", "^PA$", 
+                                    "^TC$", "^VC$", "^MS[A-Z]", "^W$", "^ND$", 
+                                    "^MN$", "^AORTX$", "^AOND$", "^AND$", "^AR$",
+                                    "^BNC$", "^NY$", "^AOTX$", "^TX$", "^COTX$", "^NDMN$", "WIMN",
+                                    "COMN", "AOMN", "ATTX", "^NC$", "^AFW$", "^WAF$", "^WTX$",
+                                    "^OR$", "^AOR$", "^AAF$", "^AFC$", "^AOR$", "^AFW$", "^NDAF$", "^COOR$",
+                                    "^NDOR$", "B$", "^NCJ$", "^BTD$"),
+                      cross.site = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", 
+                                    "Idaho", "Idaho", "Maine", "Maryland", "Colorado", 
+                                    "Colorado", "NorthDakota", "NorthDakota", "NewYork", "Washington", 
+                                    "Texas", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
+                                    "Minnesota", "Idaho", "Idaho", "Idaho", "NewBrunswick",
+                                    "Beltsville", "NewYork", "Texas", "Texas", "Colorado", "NorthDakota", "Wisconsin",
+                                    "Colorado", "Idaho", "Idaho", "NorthCarolina", "Maine", "Wisconsin", "Wisconsin",
+                                    "Oregon", "Idaho", "Idaho", "Maine", "Idaho", "Maine", "NorthDakota", "Colorado",
+                                    "NorthDakota", "Maryland", "NorthCarolina", "Maryland"),
+                       sel.site = c("Idaho", "Idaho", "Wisconsin", "Colorado", "Oregon", 
+                                    "Idaho", "Texas", "Maine", "Texas", "Colorado", 
+                                    "Idaho", "Idaho", "Texas", "NewYork", "Washington", 
+                                    "Colorado", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
+                                    "Minnesota", "Texas", "NorthDakota", "NorthDakota", "NewBrunswick",
+                                    "NorthCarolina", "NewYork", "Texas", "Texas", "Texas", "Minnesota", "Minnesota",
+                                    "Minnesota", "Minnesota", "Texas", "NorthCarolina", "Wisconsin", "Maine", "Texas",
+                                    "Oregon", "Oregon", "Maine", "Colorado", "Oregon", "Wisconsin", "Maine", "Oregon",
+                                    "Oregon", "Maryland", "NorthCarolina", "Maryland"))
+
+chipPhenoFinal <- chipPheno                  %>% 
+  regex_left_join(programCodes, by = "code") %>%
+  filter(!is.na(code.y))                     %>% 
+  select(trial, variety, sel.site, yield_total)
 
 chipGenoVarieties <- chipGeno        %>% ## Get names of the varieties from genotype data
   select(-marker, -chrom, -position) %>%
   names()                            %>%
   tibble(variety = .)
 
-chipFieldVarieties <- chipFieldDataProgram %>% ## Get names of the varieties from field
+chipVarieties <- chipPhenoFinal %>% ## Get names of the varieties from field
   distinct(variety)
 
-varieties <- inner_join(chipFieldVarieties, ## Keep only variety names in both the field and geno data 
-                        chipGenoVarieties) 
+varieties <- inner_join(chipVarieties, chipGenoVarieties) ## Keep only variety names in both the field and geno data 
 
 chipGenoSelected <- chipGeno %>% ## filter out unnecessary varieties
-  select(marker, chrom, position, pull(varieties))
+                      select(marker, 
+                             chrom, 
+                             position, 
+                             pull(varieties))
 
-chipFieldSelected <- chipFieldDataProgram %>% ## filter out unnecessary varieties
-  filter(variety %in% pull(varieties))
+chipPhenoSelected <- chipPhenoFinal %>% ## filter out unnecessary varieties
+  filter(variety %in% pull(varieties)) %>%
+  select(variety, yield_total, trial, sel.site)
 
-write_csv(chipFieldSelected, "chipPheno12k.csv")
+write_csv(chipPhenoSelected, "chipPheno12k.csv")
 write_csv(chipGenoSelected, "chipGeno12k.csv")
 
 ```
@@ -97,8 +120,8 @@ data <- read.GWASpoly(ploidy = 4,
 data.original <- set.K(data, 
                        LOCO=FALSE)
 
-params <- set.params(geno.freq  = 1 - 10/334,
-                     fixed      = c("program", "trial"),
+params <- set.params(geno.freq  = 1 - 10/546,
+                     fixed      = c("trial", "sel.site"),
                      fixed.type = c("factor", "factor"))
 Sys.time()
 
@@ -127,37 +150,45 @@ genoMap <- chipGeno               %>%
 fryGeno <- read_csv("NFPT15-20_geno.csv")
 fryPheno <- read_csv("nfpt_field_data.csv")
 
-fryGeno <- fryGeno                                            %>%
-  mutate(across(is_numeric, round))                           %>%
-  rename_with(~gsub("-", ".", .x, fixed = TRUE))              %>%
-  inner_join(genoMap)                                         %>%
-  relocate(chrom, position, .after = marker)                  %>%
+fryGeno <- fryGeno                                 %>%
+  mutate(across(is_numeric, round))                %>%
+  rename_with(~gsub("-", ".", .x, fixed = TRUE))   %>%
+  inner_join(genoMap)                              %>%
+  relocate(chrom, position, .after = marker)       %>%
   arrange(chrom, position)
 
 fryPheno <- fryPheno %>%
-  filter(year %in% as.character(2011:2021))                                    %>%
-  mutate(variety = str_replace_all(variety, " ", ""))                          %>% # Removes spaces
-  mutate(variety = str_replace_all(variety, "-", "."))                         %>% # Replaces hyphens with periods
-  select(variety, total_weight, trial)                                         %>% # keep only relevant columns
+  filter(year %in% as.character(2011:2021))              %>%
+  mutate(variety = str_replace_all(variety, " ", ""))    %>% # Removes spaces
+  mutate(variety = str_replace_all(variety, "-", "."))   %>% # Replaces hyphens with periods
+  select(variety, total_weight, trial)                   %>% # keep only relevant columns
   mutate(trial = str_replace(trial, " NFPT ", "_"))                            
 
-programCodes <- data.frame(code = c("A", "AA", "AW", "AC", "AO", "AOA", "ATX", "AF", "BTX", "CO", "COA",
-                                    "NDA", "NDTX", "NY", "PA", "TC", "VC", "MS", "W", "ND", "MN"),
-                           program = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho", "Idaho",
-                                       "Maryland", "Colorado", "Colorado", "NorthDakota",
-                                       "NorthDakota", "NewYork", "Washington", "Texas",
-                                       "Alberta", "Michigan", "Wisconsin", "NorthDakota", "Minnesota"),
-                           sel.site = c("Idaho", "Idaho", "Washington", "Colorado", "Oregon", "Oregon", "Texas", NA,
-                                        "Texas", "Colorado", "Idaho", "Idaho", "Texas",
-                                        "NewYork", "Idaho", "Colorado", "Alberta", "Michigan", 
-                                        "Wisconsin", "NorthDakota", "Minnesota"))
+programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
+                                    "^AOA$", "^ATX$", "^AF$", "^BTX$", "^CO$",
+                                    "^COA$", "^NDA$", "^NDTX$", "NY[A-Z]", "PA", 
+                                    "^TC$", "^VC$", "MS[A-Z]", "^W$", "^ND$", 
+                                    "^MN$", "^AORTX$", "^AOND$", "^AND$", "^AR$",
+                                    "^BNC$", "^NY$"),
+                      cross.site = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", 
+                                    "Idaho", "Idaho", "Maine", "Maryland", "Colorado", 
+                                    "Colorado", "NorthDakota", "NorthDakota", "NewYork", "Washington", 
+                                    "Texas", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
+                                    "Minnesota", "Idaho", "Idaho", "Idaho", "NewBrunswick",
+                                    "Beltsville", "NewYork"),
+                       sel.site = c("Idaho", "Idaho", "Wisconsin", "Colorado", "Oregon", 
+                                    "Idaho", "Texas", "Maine", "Texas", "Colorado", 
+                                    "Idaho", "Idaho", "Texas", "NewYork", "Washington", 
+                                    "Colorado", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
+                                    "Minnesota", "Texas", "NorthDakota", "NorthDakota", "NewBrunswick",
+                                    "NorthCarolina", "NewYork"))
 
 fryPheno <- fryPheno %>% 
   mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, 
                        str_sub(variety, 1L, 1L), 
-                       str_sub(variety, 1L, 2L)))          %>% ## standardizes the program codes in case they are only 1 letter
-  left_join(., programCodes, by = "code")                  %>% 
-  select(-code, -sel.site)                                 %>%
+                       str_sub(variety, 1L, 2L)))     %>% ## standardizes codes in case they are only 1 letter
+  left_join(., programCodes, by = "code")             %>% 
+  select(-code, -sel.site)                            %>%
   filter(!is.na(program))
 
 fryPhenoVar <- fryPheno %>% ## Get names of the varieties from field
@@ -214,3 +245,36 @@ p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
 
 
 ```
+
+
+```{r read in env data}
+
+location <- c("Florida", "NorthCarolina", "Texas", "Michigan", "NorthDakota", "NewYork", "Wisconsin", "California", "Minnesota", "Colorado", "Oregon")
+long <- c(-81.4333, -76.650, -102.7441, -85.1768, -97.6281, -76.344808, -89.523177, -118.88)
+lat <- c(29.6833, 35.8333, 35.9713, 43.3505, 48.5469, 42.512151, 44.133584, 35.2580)
+city <- c("Hastings", "Plymouth", "Dalhart", "Douglass", "Hoople", "Freeville", "Hancock", "Bakersfield", "Becker", "", "Hermiston")
+
+locations <- tibble(state = location,  city = city, latitude = lat, longitude = long)
+
+minTemp <- read_xlsx("all_env_data.xlsx", "min_temp") %>% 
+  pivot_longer(Jan:Annual, names_to = "month", values_to = "minTemp") %>%
+  filter(month != "Annual", Year != "Mean")
+
+maxTemp <- read_xlsx("all_env_data.xlsx", "max_temp") %>% 
+  pivot_longer(Jan:Annual, names_to = "month", values_to = "maxTemp") %>%
+  filter(month != "Annual", Year != "Mean")
+
+GDD50 <- read_xlsx("all_env_data.xlsx", "gdd_50") %>% 
+  pivot_longer(Jan:Annual, names_to = "month", values_to = "gdd50") %>%
+  filter(month != "Annual", Year != "Mean")
+
+precip <- read_xlsx("all_env_data.xlsx", "precip") %>% 
+  pivot_longer(Jan:Annual, names_to = "month", values_to = "precip") %>%
+  filter(month != "Annual", Year != "Mean")
+
+avgTemp <- read_xlsx("all_env_data.xlsx", "avg_temp") %>% 
+  pivot_longer(Jan:Annual, names_to = "month", values_to = "avgTemp") %>%
+  filter(month != "Annual", Year != "Mean")
+
+```
+
