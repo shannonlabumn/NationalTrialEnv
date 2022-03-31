@@ -8,10 +8,11 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = T)
 knitr::opts_chunk$set(root.dir="/Users/husainagha/Documents/GitHub.nosync/NationalTrialEnv/")
-library(tidyverse); library(GWASpoly); library(fuzzyjoin); library(readxl)
+library(tidyverse); library(GWASpoly); library(fuzzyjoin); library(readxl); library(janitor); library(statgenGxE)
+source(file = "ascer.fn.R")
 ```
 
-```{r data import, echo=FALSE}
+```{r data import, include=F}
 files <- list.files("./ncpt_field/", full.names = TRUE)
 ncptList <- lapply(files, function(i){read_csv(i)})
 chipFieldData <- bind_rows(ncptList)
@@ -19,7 +20,8 @@ chipFieldData <- bind_rows(ncptList)
 ncptgeno1 <- read_csv("NCPTgeno1.csv")
 ncptgeno2 <- read_csv("NCPTgeno2.csv")
 
-chipGeno <- left_join(ncptgeno1, ncptgeno2, by = "marker")
+chipGeno <- left_join(ncptgeno1, ncptgeno2, by = "marker") %>%
+                filter(across(everything(), ~ !is.na(.x)))
 ## This bit just takes out varieties that were genotyped on both the 12k and 8k arrays to avoid duplicated entries
 chipGeno <- chipGeno                %>% 
   rename_at(vars(ends_with(".x")),
@@ -69,7 +71,7 @@ programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
                                     "Beltsville", "NewYork", "Texas", "Texas", "Colorado", "NorthDakota", "Wisconsin",
                                     "Colorado", "Idaho", "Idaho", "NorthCarolina", "Maine", "Wisconsin", "Wisconsin",
                                     "Oregon", "Idaho", "Idaho", "Maine", "Idaho", "Maine", "NorthDakota", "Colorado",
-                                    "NorthDakota", "Maryland", "NorthCarolina", "Maryland"),
+                                    "NorthDakota", "Wisconsin", "NorthCarolina", "Maryland"),
                        sel.site = c("Idaho", "Idaho", "Wisconsin", "Colorado", "Oregon", 
                                     "Idaho", "Texas", "Maine", "Texas", "Colorado", 
                                     "Idaho", "Idaho", "Texas", "NewYork", "Washington", 
@@ -78,7 +80,7 @@ programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
                                     "NorthCarolina", "NewYork", "Texas", "Texas", "Texas", "Minnesota", "Minnesota",
                                     "Minnesota", "Minnesota", "Texas", "NorthCarolina", "Wisconsin", "Maine", "Texas",
                                     "Oregon", "Oregon", "Maine", "Colorado", "Oregon", "Wisconsin", "Maine", "Oregon",
-                                    "Oregon", "Maryland", "NorthCarolina", "Maryland"))
+                                    "Oregon", "Wisconsin", "NorthCarolina", "Maryland"))
 
 chipPhenoFinal <- chipPheno                  %>% 
   regex_left_join(programCodes, by = "code") %>%
@@ -90,15 +92,16 @@ chipGenoVarieties <- chipGeno        %>% ## Get names of the varieties from geno
   names()                            %>%
   tibble(variety = .)
 
-chipVarieties <- chipPhenoFinal %>% ## Get names of the varieties from field
-  distinct(variety)
+chipVarieties <- chipPhenoFinal                %>% ## Get names of the varieties from field
+                  filter(!duplicated(variety)) %>%
+                  select(variety)
 
 varieties <- inner_join(chipVarieties, chipGenoVarieties) ## Keep only variety names in both the field and geno data 
 
 chipGenoSelected <- chipGeno %>% ## filter out unnecessary varieties
-                      select(marker, 
-                             chrom, 
-                             position, 
+                      select(marker,
+                             chrom,
+                             position,
                              pull(varieties))
 
 chipPhenoSelected <- chipPhenoFinal %>% ## filter out unnecessary varieties
@@ -111,16 +114,16 @@ write_csv(chipGenoSelected, "chipGeno12k.csv")
 ```
 
 ```{r actual GWAS}
-data <- read.GWASpoly(ploidy = 4, 
-                      pheno.file = "chipPheno12k.csv", 
-                      geno.file = "chipGeno12k.csv", 
-                      format = "numeric", 
+data <- read.GWASpoly(ploidy = 4,
+                      pheno.file = "chipPheno12k.csv",
+                      geno.file = "chipGeno12k.csv",
+                      format = "numeric",
                       n.traits = 1)
 
-data.original <- set.K(data, 
+data.original <- set.K(data,
                        LOCO=FALSE)
 
-params <- set.params(geno.freq  = 1 - 10/546,
+params <- set.params(geno.freq  = 1 - 10/605,
                      fixed      = c("trial", "sel.site"),
                      fixed.type = c("factor", "factor"))
 Sys.time()
@@ -278,3 +281,48 @@ avgTemp <- read_xlsx("all_env_data.xlsx", "avg_temp") %>%
 
 ```
 
+
+```{r GxE}
+
+chips_gxe <- chipPhenoFinal %>% 
+  mutate(trial1 = trial, yield_total = as.numeric(yield_total)) %>%
+  separate(trial1, into = c("year", "location"), sep = "_") %>%
+  mutate_if(is.character, as.factor) %>%
+  group_by(year) %>%
+  group_split()
+
+chips_gxeTD <- lapply(chips_gxe, function(x){statgenSTA::createTD(data = x, genotype = "variety", trial = "trial")})
+
+lapply(X = chips_gxeTD, FUN = function(x){plot(x, plotType = "box", traits = "yield_total", colorTrialBy = "location",
+     orderBy = "descending")})
+
+thing <- lapply(chips_gxeTD, function(x){gxeVarComp(TD = x, trait = "yield_total")})
+lapply(thing, function(x){summary(x)})
+
+chipFW <- lapply(chips_gxeTD, function(x){gxeFw(TD = x, trait = "yield_total")})
+
+lapply(chipFW, function(x){plot(x, plotType = "line")})
+```
+
+
+```{r rho/fst}
+
+chip_pop_split <- as_tibble(cbind(variety = names(chipGeno), t(chipGeno)))[-c(2,3),] %>% 
+  row_to_names(row_number = 1) %>%
+  rename(variety = marker) %>%
+  mutate(code = ifelse(str_sub(variety, 2L, 2L) == ".",
+                                     "W",
+                                     only_letters(variety))) %>%
+  regex_right_join(programCodes, by = "code") %>%
+  relocate(sel.site, code.y, code.x, .before = variety) %>%
+  filter(!is.na(variety), !duplicated(variety)) %>%
+  select(-code.y, -code.x) %>%
+  group_by(sel.site) %>%
+  group_split(.keep = T)
+
+lapply(chip_pop_split, 
+       function(x){
+         
+       })
+
+```
