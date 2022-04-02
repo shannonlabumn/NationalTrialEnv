@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = T)
 knitr::opts_chunk$set(root.dir="/Users/husainagha/Documents/GitHub.nosync/NationalTrialEnv/")
 library(tidyverse); library(GWASpoly); library(fuzzyjoin); library(readxl); library(janitor); library(statgenGxE)
 source(file = "ascer.fn.R")
+source(file = "newReadGWASpoly.fn.R")
 ```
 
 ```{r data import, include=F}
@@ -113,7 +114,16 @@ write_csv(chipGenoSelected, "chipGeno12k.csv")
 
 ```
 
-```{r actual GWAS}
+```{r chipGWAS}
+
+
+data <- read.GWASpoly.object(ploidy = 4, 
+                             phenos = chipPhenoSelected,
+                             genos = chipGenoSelected,
+                             n.traits = 1,
+                             format = "numeric")
+
+
 data <- read.GWASpoly(ploidy = 4,
                       pheno.file = "chipPheno12k.csv",
                       geno.file = "chipGeno12k.csv",
@@ -365,15 +375,6 @@ names(diversityStats) <- pull(names)
 
 
 ```{r mega-environment}
-# chipsMegaEnv <- chipPhenoFinal %>%
-#   group_by(trial) %>%
-#   filter(!duplicated(variety)) %>%
-#   mutate(trial = as.character(trial)) %>%
-#   statgenSTA::createTD(., genotype = "variety", trial = "trial") %>%
-#   gxeMegaEnv(TD = ., trait = "yield_total") %>%
-#   summary
-# ## Summarize results.
-# summary(chipsMegaEnv)
 
 chips_gxe_split_1per <- chipPhenoFinal %>% 
   mutate(trial1 = trial, yield_total = as.numeric(yield_total)) %>%
