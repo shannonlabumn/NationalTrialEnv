@@ -116,19 +116,11 @@ write_csv(chipGenoSelected, "chipGeno12k.csv")
 
 ```{r chipGWAS}
 
-
 data <- read.GWASpoly.object(ploidy = 4, 
                              phenos = chipPhenoSelected,
                              genos = chipGenoSelected,
                              n.traits = 1,
                              format = "numeric")
-
-
-data <- read.GWASpoly(ploidy = 4,
-                      pheno.file = "chipPheno12k.csv",
-                      geno.file = "chipGeno12k.csv",
-                      format = "numeric",
-                      n.traits = 1)
 
 data.original <- set.K(data,
                        LOCO=FALSE)
