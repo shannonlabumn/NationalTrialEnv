@@ -284,14 +284,16 @@ avgTemp <- read_xlsx("all_env_data.xlsx", "avg_temp") %>%
 
 ```{r GxE}
 
-chips_gxe <- chipPhenoFinal %>% 
+chips_gxeTD_total <- statgenSTA::createTD(chipPhenoFinal, genotype = "variety", trial = "trial")
+
+chips_gxe_split <- chipPhenoFinal %>% 
   mutate(trial1 = trial, yield_total = as.numeric(yield_total)) %>%
   separate(trial1, into = c("year", "location"), sep = "_") %>%
   mutate_if(is.character, as.factor) %>%
   group_by(year) %>%
   group_split()
 
-chips_gxeTD <- lapply(chips_gxe, function(x){statgenSTA::createTD(data = x, genotype = "variety", trial = "trial")})
+chips_gxeTD <- lapply(chips_gxe_split, function(x){statgenSTA::createTD(data = x, genotype = "variety", trial = "trial")})
 
 lapply(X = chips_gxeTD, FUN = function(x){plot(x, plotType = "box", traits = "yield_total", colorTrialBy = "location",
      orderBy = "descending")})
@@ -301,7 +303,7 @@ lapply(thing, function(x){summary(x)})
 
 chipFW <- lapply(chips_gxeTD, function(x){gxeFw(TD = x, trait = "yield_total")})
 
-lapply(chipFW, function(x){plot(x, plotType = "line")})
+lapply(chipFW, function(x){plot(x, plotType = "line", colorGenoBy = "sel.site")})
 ```
 
 
@@ -316,13 +318,79 @@ chip_pop_split <- as_tibble(cbind(variety = names(chipGeno), t(chipGeno)))[-c(2,
   regex_right_join(programCodes, by = "code") %>%
   relocate(sel.site, code.y, code.x, .before = variety) %>%
   filter(!is.na(variety), !duplicated(variety)) %>%
-  select(-code.y, -code.x) %>%
+  select(-code.y, -code.x, -cross.site) %>%
   group_by(sel.site) %>%
   group_split(.keep = T)
 
-lapply(chip_pop_split, 
-       function(x){
-         
-       })
+chip_pop_split_named <- lapply(chip_pop_split, function(x){
+  x %>% column_to_rownames("variety")
+})
+
+genos <- NULL
+for(i in 1:9){
+  for(j in (i+1):10){
+    store <- list(rbind(chip_pop_split_named[[i]][,-1], chip_pop_split_named[[j]][,-1]))
+    genos <- append(genos, store)
+  }
+}
+pops <- NULL
+for(i in 1:9){
+  for(j in (i+1):10){
+    store <- list(rownames(chip_pop_split_named[[i]]), rownames(chip_pop_split_named[[j]]))
+    pops <- append(pops, list(store))
+  }
+}
+
+names <- NULL
+for(i in 1:9){
+  for(j in (i+1):10){
+    store <- matrix(c(unique(chip_pop_split_named[[i]][,1]), unique(chip_pop_split_named[[j]][,1])), ncol = 2)
+    names <- rbind(names, store)
+  }
+}
+
+
+diversityStats <- NULL
+for(i in 1:9){
+  for(j in 1:(9 - (i - 1))){
+    store <- list(get.rho(matrix(as.numeric(as.matrix(list[[i]])), ncol = ncol(list[[i]]), 
+                            dimnames = dimnames(list[[i]])), pops[[i]]))
+    diversityStats <- append(diversityStats, store)
+  }}
+
+names <- names %>% mutate(names = str_c(site1, "", site2)) %>% select(names)
+names(diversityStats) <- pull(names)
 
 ```
+
+
+```{r mega-environment}
+# chipsMegaEnv <- chipPhenoFinal %>%
+#   group_by(trial) %>%
+#   filter(!duplicated(variety)) %>%
+#   mutate(trial = as.character(trial)) %>%
+#   statgenSTA::createTD(., genotype = "variety", trial = "trial") %>%
+#   gxeMegaEnv(TD = ., trait = "yield_total") %>%
+#   summary
+# ## Summarize results.
+# summary(chipsMegaEnv)
+
+chips_gxe_split_1per <- chipPhenoFinal %>% 
+  mutate(trial1 = trial, yield_total = as.numeric(yield_total)) %>%
+  separate(trial1, into = c("year", "location"), sep = "_") %>%
+  mutate_if(is.character, as.factor) %>%
+  group_by(location, year) %>%
+  filter(!duplicated(variety)) %>%
+  mutate(location = as.character(location)) %>%
+  select(-trial) %>%
+  ungroup() %>%
+  group_by(year) %>%
+  group_split()
+
+chips_gxeTD_1per <- lapply(chips_gxe_split_1per, function(x){statgenSTA::createTD(data = x, genotype = "variety", trial = "location")})
+
+lapply(chips_gxeTD_1per, function(x){gxeMegaEnv(x, trait = "yield_total")}) %>% lapply(., summary)
+
+
+```
+
