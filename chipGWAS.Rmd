@@ -109,39 +109,33 @@ chipPhenoSelected <- chipPhenoFinal %>% ## filter out unnecessary varieties
   filter(variety %in% pull(varieties)) %>%
   select(variety, yield_total, trial, sel.site)
 
-write_csv(chipPhenoSelected, "chipPheno12k.csv")
-write_csv(chipGenoSelected, "chipGeno12k.csv")
+wisconsinChips <- chipPhenoSelected %>% 
+                    select(variety, sel.site, trial) %>%
+                    mutate(sel.site = ifelse(sel.site == "Wisconsin", 1, 0))
 
 ```
 
 ```{r chipGWAS}
 
 data <- read.GWASpoly.object(ploidy = 4, 
-                             phenos = chipPhenoSelected,
+                             phenos = wisconsinChips,
                              genos = chipGenoSelected,
                              n.traits = 1,
                              format = "numeric")
 
-data.original <- set.K(data,
-                       LOCO=FALSE)
+data.original <- set.K(data, LOCO=FALSE)
 
-params <- set.params(geno.freq  = 1 - 10/605,
-                     fixed      = c("trial", "sel.site"),
-                     fixed.type = c("factor", "factor"))
-Sys.time()
+params <- set.params(geno.freq  = 1 - (10/605))
 
 data.original.scan <- GWASpoly(data.original,
                                models=c("additive"),
-                               traits=c("yield_total"),
-                               params=params,
-                               n.core = 4)
+                               traits=c("sel.site"),
+                               params=params)
 
-Sys.time()
+qq.plot(data.original.scan,trait="sel.site") + ggtitle(label="Original")
+data2 <- set.threshold(data.original.scan,method="FDR",level=0.05)
 
-qq.plot(data.original.scan,trait="yield_total") + ggtitle(label="Original")
-data2 <- set.threshold(data.original.scan,method="Bonferroni",level=0.05)
-
-p <- manhattan.plot(data2,traits="yield_total")
+p <- manhattan.plot(data2,traits="sel.site")
 p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
 
 ```
@@ -350,18 +344,37 @@ for(i in 1:9){
     names <- rbind(names, store)
   }
 }
-
+names <- tibble(site1 = names[,1], site2 = names[,2])
+names <- names %>% mutate(names = str_c(site1, "", site2)) %>% select(names)
 
 diversityStats <- NULL
-for(i in 1:9){
-  for(j in 1:(9 - (i - 1))){
-    store <- list(get.rho(matrix(as.numeric(as.matrix(list[[i]])), ncol = ncol(list[[i]]), 
-                            dimnames = dimnames(list[[i]])), pops[[i]]))
+for(i in 1:45){
+    store <- list(get.rho(matrix(as.numeric(as.matrix(genos[[i]])), ncol = ncol(genos[[i]]), 
+                            dimnames = dimnames(genos[[i]])), pops[[i]]))
     diversityStats <- append(diversityStats, store)
-  }}
+  }
 
-names <- names %>% mutate(names = str_c(site1, "", site2)) %>% select(names)
+
 names(diversityStats) <- pull(names)
+
+chipMap <- chipGeno %>% select(marker, chrom, position)
+
+rho.plot <- NULL
+for(i in 1:45){
+
+  rho.plot.i = tibble(marker = names(diversityStats[[i]][["rho"]]),
+                      rho = diversityStats[[i]][["rho"]])           %>% 
+    left_join(chipMap, by = "marker", keep = F)                     %>% 
+    ggplot(aes(x = position, y = rho, color = chrom))               + 
+    geom_point(alpha = 0.3, na.rm = T)                              + 
+    ylim(c(0, 1))
+  
+  rho.plot <- append(rho.plot, list(rho.plot.i))
+}
+
+for(i in 1:45){
+  print(rho.plot[[i]])
+}
 
 ```
 
