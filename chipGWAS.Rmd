@@ -14,100 +14,11 @@ source(file = "newReadGWASpoly.fn.R")
 ```
 
 ```{r data import, include=F}
-files <- list.files("./ncpt_field/", full.names = TRUE)
-ncptList <- lapply(files, function(i){read_csv(i)})
-chipFieldData <- bind_rows(ncptList)
-      
-ncptgeno1 <- read_csv("NCPTgeno1.csv")
-ncptgeno2 <- read_csv("NCPTgeno2.csv")
+chipPhenoSelected <- read_csv("chipPhenoSelected.csv")
+chipGenoSelected <- read_csv("chipGenoSelected.csv")
 
-chipGeno <- left_join(ncptgeno1, ncptgeno2, by = "marker") %>%
-                filter(across(everything(), ~ !is.na(.x)))
-## This bit just takes out varieties that were genotyped on both the 12k and 8k arrays to avoid duplicated entries
-chipGeno <- chipGeno                %>% 
-  rename_at(vars(ends_with(".x")),
-    ~str_replace(., "\\..$",""))    %>% 
-  select_at(vars(-ends_with(".y")))
-
-```
-
-## Chip 12k array only data.
-
-```{r clean data}
-chipFieldData <- chipFieldData %>% 
-  filter(!is.na(year), !is.na(yield_total), year %in% as.character(2010:2021)) %>% # filters empty rows, missing yield, headers
-  mutate(variety = str_replace_all(variety, " ", ""))                          %>% # Removes spaces
-  mutate(variety = str_replace_all(variety, "-", "."))                         %>% # Replaces hyphens with periods
-  select(trial, variety, yield_total)                                          %>% # keep only relevant columns
-  mutate(trial = str_replace(trial, " NCPT ", "_"))
-
-chipGeno <- chipGeno %>% mutate_if(is.numeric, round)
-
-# check if there are different named clones in the data set
-# Try to run a single trial to see if too many observations is the problem
-```
-
-```{r program codes}
-only_letters <- function(x) { gsub("^([[:alpha:]]*).*$","\\1",x) }
-
-chipPheno <- chipFieldData %>%
-                mutate(code = ifelse(str_sub(variety, 2L, 2L) == ".",
-                                     "W",
-                                     only_letters(variety)))
-
-programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
-                                    "^AOA$", "^ATX$", "^AF$", "^BTX$", "^CO$",
-                                    "^COA$", "^NDA$", "^NDTX$", "NY[A-Z]", "^PA$", 
-                                    "^TC$", "^VC$", "^MS[A-Z]", "^W$", "^ND$", 
-                                    "^MN$", "^AORTX$", "^AOND$", "^AND$", "^AR$",
-                                    "^BNC$", "^NY$", "^AOTX$", "^TX$", "^COTX$", "^NDMN$", "WIMN",
-                                    "COMN", "AOMN", "ATTX", "^NC$", "^AFW$", "^WAF$", "^WTX$",
-                                    "^OR$", "^AOR$", "^AAF$", "^AFC$", "^AOR$", "^AFW$", "^NDAF$", "^COOR$",
-                                    "^NDOR$", "B$", "^NCJ$", "^BTD$"),
-                      cross.site = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", 
-                                    "Idaho", "Idaho", "Maine", "Maryland", "Colorado", 
-                                    "Colorado", "NorthDakota", "NorthDakota", "NewYork", "Washington", 
-                                    "Texas", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
-                                    "Minnesota", "Idaho", "Idaho", "Idaho", "NewBrunswick",
-                                    "Beltsville", "NewYork", "Texas", "Texas", "Colorado", "NorthDakota", "Wisconsin",
-                                    "Colorado", "Idaho", "Idaho", "NorthCarolina", "Maine", "Wisconsin", "Wisconsin",
-                                    "Oregon", "Idaho", "Idaho", "Maine", "Idaho", "Maine", "NorthDakota", "Colorado",
-                                    "NorthDakota", "Wisconsin", "NorthCarolina", "Maryland"),
-                       sel.site = c("Idaho", "Idaho", "Wisconsin", "Colorado", "Oregon", 
-                                    "Idaho", "Texas", "Maine", "Texas", "Colorado", 
-                                    "Idaho", "Idaho", "Texas", "NewYork", "Washington", 
-                                    "Colorado", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
-                                    "Minnesota", "Texas", "NorthDakota", "NorthDakota", "NewBrunswick",
-                                    "NorthCarolina", "NewYork", "Texas", "Texas", "Texas", "Minnesota", "Minnesota",
-                                    "Minnesota", "Minnesota", "Texas", "NorthCarolina", "Wisconsin", "Maine", "Texas",
-                                    "Oregon", "Oregon", "Maine", "Colorado", "Oregon", "Wisconsin", "Maine", "Oregon",
-                                    "Oregon", "Wisconsin", "NorthCarolina", "Maryland"))
-
-chipPhenoFinal <- chipPheno                  %>% 
-  regex_left_join(programCodes, by = "code") %>%
-  filter(!is.na(code.y))                     %>% 
-  select(trial, variety, sel.site, yield_total)
-
-chipGenoVarieties <- chipGeno        %>% ## Get names of the varieties from genotype data
-  select(-marker, -chrom, -position) %>%
-  names()                            %>%
-  tibble(variety = .)
-
-chipVarieties <- chipPhenoFinal                %>% ## Get names of the varieties from field
-                  filter(!duplicated(variety)) %>%
-                  select(variety)
-
-varieties <- inner_join(chipVarieties, chipGenoVarieties) ## Keep only variety names in both the field and geno data 
-
-chipGenoSelected <- chipGeno %>% ## filter out unnecessary varieties
-                      select(marker,
-                             chrom,
-                             position,
-                             pull(varieties))
-
-chipPhenoSelected <- chipPhenoFinal %>% ## filter out unnecessary varieties
-  filter(variety %in% pull(varieties)) %>%
-  select(variety, yield_total, trial, sel.site)
+fryPhenoSelected <- read_csv("fryPhenoSelected.csv")
+fryGenoSelected <- read_csv("fryGenoSelected.csv")
 
 wisconsinChips <- chipPhenoSelected %>% 
                     select(variety, sel.site, trial) %>%
@@ -137,78 +48,6 @@ data2 <- set.threshold(data.original.scan,method="FDR",level=0.05)
 
 p <- manhattan.plot(data2,traits="sel.site")
 p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
-
-```
-
-```{r fry data processing}
-
-genoMap <- chipGeno               %>% 
-  select(marker, position, chrom) %>% 
-  arrange(chrom, position)
-
-fryGeno <- read_csv("NFPT15-20_geno.csv")
-fryPheno <- read_csv("nfpt_field_data.csv")
-
-fryGeno <- fryGeno                                 %>%
-  mutate(across(is_numeric, round))                %>%
-  rename_with(~gsub("-", ".", .x, fixed = TRUE))   %>%
-  inner_join(genoMap)                              %>%
-  relocate(chrom, position, .after = marker)       %>%
-  arrange(chrom, position)
-
-fryPheno <- fryPheno %>%
-  filter(year %in% as.character(2011:2021))              %>%
-  mutate(variety = str_replace_all(variety, " ", ""))    %>% # Removes spaces
-  mutate(variety = str_replace_all(variety, "-", "."))   %>% # Replaces hyphens with periods
-  select(variety, total_weight, trial)                   %>% # keep only relevant columns
-  mutate(trial = str_replace(trial, " NFPT ", "_"))                            
-
-programCodes <- data.frame(code = c("^A$", "^AA$", "^AW$", "^AC$", "^AO$",
-                                    "^AOA$", "^ATX$", "^AF$", "^BTX$", "^CO$",
-                                    "^COA$", "^NDA$", "^NDTX$", "NY[A-Z]", "PA", 
-                                    "^TC$", "^VC$", "MS[A-Z]", "^W$", "^ND$", 
-                                    "^MN$", "^AORTX$", "^AOND$", "^AND$", "^AR$",
-                                    "^BNC$", "^NY$"),
-                      cross.site = c("Idaho", "Idaho", "Idaho", "Idaho", "Idaho", 
-                                    "Idaho", "Idaho", "Maine", "Maryland", "Colorado", 
-                                    "Colorado", "NorthDakota", "NorthDakota", "NewYork", "Washington", 
-                                    "Texas", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
-                                    "Minnesota", "Idaho", "Idaho", "Idaho", "NewBrunswick",
-                                    "Beltsville", "NewYork"),
-                       sel.site = c("Idaho", "Idaho", "Wisconsin", "Colorado", "Oregon", 
-                                    "Idaho", "Texas", "Maine", "Texas", "Colorado", 
-                                    "Idaho", "Idaho", "Texas", "NewYork", "Washington", 
-                                    "Colorado", "Alberta", "Michigan", "Wisconsin", "NorthDakota", 
-                                    "Minnesota", "Texas", "NorthDakota", "NorthDakota", "NewBrunswick",
-                                    "NorthCarolina", "NewYork"))
-
-fryPheno <- fryPheno %>% 
-  mutate(code = ifelse(str_sub(variety, 2L, 2L) %in% 0:9, 
-                       str_sub(variety, 1L, 1L), 
-                       str_sub(variety, 1L, 2L)))     %>% ## standardizes codes in case they are only 1 letter
-  left_join(., programCodes, by = "code")             %>% 
-  select(-code, -sel.site)                            %>%
-  filter(!is.na(program))
-
-fryPhenoVar <- fryPheno %>% ## Get names of the varieties from field
-  distinct(variety)
-
-fryGenoVar <- fryGeno                %>% ## Get names of the varieties from genotype data
-  select(-marker, -chrom, -position) %>%
-  names()                            %>%
-  tibble(variety = .)
-
-fryVarieties <- inner_join(fryGenoVar,
-                           fryPhenoVar)
-
-fryPheno <- fryPheno %>%
-  filter(variety %in% fryVarieties$variety)
-
-fryGeno <- fryGeno %>%
-  select(marker, chrom, position, fryVarieties$variety)
-
-write_csv(fryPheno, "fryGWASpheno.csv")
-write_csv(fryGeno, "fryGWASgeno.csv")
 
 ```
 
@@ -245,7 +84,6 @@ p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
 
 ```
 
-
 ```{r read in env data}
 
 location <- c("Florida", "NorthCarolina", "Texas", "Michigan", "NorthDakota", "NewYork", "Wisconsin", "California", "Minnesota", "Colorado", "Oregon")
@@ -277,10 +115,9 @@ avgTemp <- read_xlsx("all_env_data.xlsx", "avg_temp") %>%
 
 ```
 
-
 ```{r GxE}
 
-chips_gxeTD_total <- statgenSTA::createTD(chipPhenoFinal, genotype = "variety", trial = "trial")
+# chips_gxeTD_total <- statgenSTA::createTD(chipPhenoFinal, genotype = "variety", trial = "trial")
 
 chips_gxe_split <- chipPhenoFinal %>% 
   mutate(trial1 = trial, yield_total = as.numeric(yield_total)) %>%
@@ -301,7 +138,6 @@ chipFW <- lapply(chips_gxeTD, function(x){gxeFw(TD = x, trait = "yield_total")})
 
 lapply(chipFW, function(x){plot(x, plotType = "line", colorGenoBy = "sel.site")})
 ```
-
 
 ```{r rho/fst}
 
@@ -378,7 +214,6 @@ for(i in 1:45){
 
 ```
 
-
 ```{r mega-environment}
 
 chips_gxe_split_1per <- chipPhenoFinal %>% 
@@ -397,6 +232,9 @@ chips_gxeTD_1per <- lapply(chips_gxe_split_1per, function(x){statgenSTA::createT
 
 lapply(chips_gxeTD_1per, function(x){gxeMegaEnv(x, trait = "yield_total")}) %>% lapply(., summary)
 
+chips_gxe_year_location <- chipPhenoFinal %>% 
+  separate(trial, into = c("year", "location"), sep = "_")
+
+
 
 ```
-
