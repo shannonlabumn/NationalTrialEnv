@@ -86,10 +86,10 @@ p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
 
 ```{r read in env data}
 
-location <- c("Florida", "NorthCarolina", "Texas", "Michigan", "NorthDakota", "NewYork", "Wisconsin", "California", "Minnesota", "Colorado", "Oregon")
-long <- c(-81.4333, -76.650, -102.7441, -85.1768, -97.6281, -76.344808, -89.523177, -118.88)
-lat <- c(29.6833, 35.8333, 35.9713, 43.3505, 48.5469, 42.512151, 44.133584, 35.2580)
-city <- c("Hastings", "Plymouth", "Dalhart", "Douglass", "Hoople", "Freeville", "Hancock", "Bakersfield", "Becker", "", "Hermiston")
+location <- c("Florida", "NorthCarolina", "Texas", "Michigan", "NorthDakota", "NewYork", "Wisconsin", "California", "Minnesota", "Colorado", "Oregon", "Maine", "Idaho")
+long <- c(-81.4333, -76.650, -102.7441, -85.1768, -97.6281, -76.344808, -89.523177, -118.88, -68.0062, -111.277257)
+lat <- c(29.6833, 35.8333, 35.9713, 43.3505, 48.5469, 42.512151, 44.133584, 35.2580, 46.6539, 43.855597)
+city <- c("Hastings", "Plymouth", "Dalhart", "Douglass", "Hoople", "Freeville", "Hancock", "Bakersfield", "Becker", "SanLuisValley", "Hermiston", "Aroostook Farms", "Tetonia")
 
 locations <- tibble(state = location,  city = city, latitude = lat, longitude = long)
 

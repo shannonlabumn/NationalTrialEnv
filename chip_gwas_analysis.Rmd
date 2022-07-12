@@ -1,0 +1,48 @@
+---
+title: "Chip GWAS analysis"
+author: "Husain Agha"
+date: "5/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(root.dir="~/Documents/Experimental/NationalTrialEnv/")
+```
+
+```{r}
+load("/Users/husainagha/Documents/Experimental/NationalTrialEnv/selsiteGWAS.RData")
+load("/Users/husainagha/Documents/Experimental/wisconsinselGWAS.RData")
+load("remainderSelGWAS.RData")
+```
+
+
+```{r}
+qq.plot(data.LOCO.scan.CO,trait="sel.site") + ggtitle(label="LOCO")
+data2 <- set.threshold(data.LOCO.scan.CO,method="FDR",level=0.05)
+
+p <- manhattan.plot(data2,traits="sel.site")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+qq.plot(data.LOCO.scan.ID,trait="sel.site") + ggtitle(label="LOCO")
+data2 <- set.threshold(data.LOCO.scan.MI,method="FDR",level=0.05)
+
+p <- manhattan.plot(data2,traits="sel.site")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+qq.plot(data.original.WI,trait="sel.site") + ggtitle(label="LOCO")
+data2 <- set.threshold(data.original.WI,method="FDR",level=0.05)
+
+p <- manhattan.plot(data2,traits="sel.site")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+qq.plot(data.LOCO.scan.ID,trait="sel.site") + ggtitle(label="LOCO")
+data2 <- set.threshold(data.original.NY,method="permute",level=0.01)
+
+
+load("/Users/husainagha/Documents/Experimental/NationalTrialEnv/idaho_permutation.RData")
+p <- manhattan.plot(ID.perm.gwas,traits="sel.site")
+p + theme(axis.text.x = element_text(angle=90,vjust=0.5))
+
+
+```
