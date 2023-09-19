@@ -1,4 +1,4 @@
-setwd("~/Documents/Experimental/NationalTrialEnv/")
+setwd("~/Documents/GitHub.nosync/NationalTrialEnv/")
 library(ggbiplot)
 library(tidyverse)
 library(GWASpoly)
@@ -354,4 +354,4 @@ miFit1 <- miQTL %>% mutate(R2 = miFit$R2) %>% select(Trait, Marker, Chrom, Posit
 nyFit1 <- nyQTL %>% mutate(R2 = nyFit$R2) %>% select(Trait, Marker, Chrom, Position, Score, Effect, R2)
 wiFit1 <- wiQTL %>% mutate(R2 = wiFit$R2) %>% select(Trait, Marker, Chrom, Position, Score, Effect, R2)
 
-rbind(meFit1, miFit1, nyFit1, wiFit1, minFit1, precipFit1, minRegFit1, maxRegFit1, latFit1, longFit1, yearFit1)
+rbind(meFit1, miFit1, nyFit1, wiFit1, minFit1, precipFit1, minRegFit1, maxRegFit1, latFit1, longFit1, yearFit1) %>% arrange(Chrom, Position)
