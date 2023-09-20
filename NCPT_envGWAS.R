@@ -16,7 +16,7 @@ names(geno) <- str_replace(names(geno), "-", ".")
 names(geno) <- str_replace(names(geno), " ", ".")
 names(geno) <- str_replace(names(geno), "/", ".")
 
-field.files <- list.files("./ncpt_field/", full.names = TRUE)
+field.files <- list.files("./phenotypes/", full.names = TRUE)
 ncptList <- lapply(field.files, function(i){read_csv(i, show_col_types = F)})
 chipFieldData <- bind_rows(ncptList)
 rm(list = c("ncptList", "field.files"))
@@ -59,7 +59,7 @@ selSites <- field_data_sel %>%
   filter(!is.na(sel.site)) %>%
   select(variety, year, sel.site) %>% ungroup()
 
-precip <- read_csv("precip_final.csv", show_col_types = F) %>% 
+precip <- read_csv("environments/precip_sel.csv", show_col_types = F) %>% 
   select(Feb:Sep, state, year) %>% 
   filter(year %in% 2007:2021) %>%
   pivot_longer(cols = Feb:Sep, names_to = "month", values_to = "precip") %>%
@@ -71,7 +71,7 @@ precip <- read_csv("precip_final.csv", show_col_types = F) %>%
                               ifelse(state == "NorthDakota", month %in% c("Jun", "Jul", "Aug", "Sep"), NA))))) %>%
   mutate(precip = precip*2.54, month = factor(month, levels = month.abb))
 
-maxTemp <- read_csv("max_temp_final.csv", show_col_types = F) %>% 
+maxTemp <- read_csv("environments/maxTemp_sel.csv", show_col_types = F) %>% 
   select(Feb:Sep, state, year) %>%
   filter(year %in% 2007:2021) %>%
   pivot_longer(cols = Feb:Sep, names_to = "month", values_to = "maxTemp") %>%
@@ -84,7 +84,7 @@ maxTemp <- read_csv("max_temp_final.csv", show_col_types = F) %>%
   dplyr::mutate(maxTemp = (maxTemp - 32) * (5/9),
                 month = factor(month, levels = month.abb))
 
-minTemp <- read_csv("min_temp_final.csv", show_col_types = F) %>%
+minTemp <- read_csv("environments/minTemp_sel.csv", show_col_types = F) %>%
   select(Feb:Sep, state, year) %>%
   filter(year %in% 2007:2021) %>%
   pivot_longer(cols = Feb:Sep, names_to = "month", values_to = "minTemp") %>%
@@ -167,9 +167,9 @@ selectTrialMonths <- function(x) {
   return(x)
 }
 
-precip <- read_csv("nationalTrialPrecipitation.csv", show_col_types = F)
-maxTemp <- read_csv("newEnvs/maxTempTrialUpdated.csv", show_col_types = F)
-minTemp <- read_csv("newEnvs/minTempTrialUpdated.csv", show_col_types = F)
+precip <- read_csv("environments/precip_trial.csv", show_col_types = F)
+maxTemp <- read_csv("environments/maxTemp_trial.csv", show_col_types = F)
+minTemp <- read_csv("environments/minTemp_trial.csv", show_col_types = F)
 
 envTrials <- selectTrialMonths(precip) %>% 
   left_join(selectTrialMonths(minTemp)) %>% 

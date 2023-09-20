@@ -136,6 +136,6 @@ pca.plot <- ggbiplot::ggbiplot(pca, var.axes = F, labels.size = 0, groups = selS
   labs(colour = "Breeding program") + theme_cowplot(12)
 
 
-ggsave("/Users/husainagha/Documents/Experimental/NationalTrialEnv/pca_plot.png", pca.plot, device = "png", width = 7.5, height = 8, units = "in")
+ggsave("pca_plot.png", pca.plot, device = "png", width = 7.5, height = 8, units = "in")
 
 
