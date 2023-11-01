@@ -42,7 +42,8 @@ varComps <- tibble(term = c(names(unlist(sum.full.model$varcor)), "residuals"),
                    component = c(unlist(sum.full.model$varcor), sqrt(sum.full.model$sigma)), 
                    pve = component/sum(component)*100)
 
-field_data_all <- filter(field_data_all, variety %in% names(geno))
+field_data_all <- filter(field_data_all, variety %in% names(geno)) %>% 
+  mutate(yield_total = ifelse(yield_total == 76.2, 7.7, yield_total))
 
 field_data_sel <- field_data_all %>%
   group_by(variety) %>%
